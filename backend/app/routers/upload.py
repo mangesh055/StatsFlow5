@@ -180,3 +180,64 @@ async def upload_dataset(
         "column_names": list(df.columns),
     }
     return JSONResponse(content=_convert_types(response_payload))
+
+
+@router.get("/session/{session_id}", summary="Get existing session details")
+async def get_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import select
+    from app.utils.helpers import df_to_json_safe, get_column_types
+    from app.services.health_score import get_score_label
+    import pandas as pd
+    
+    result = await db.execute(select(DataSession).where(DataSession.session_id == session_id))
+    session = result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    response_payload = {
+        "success": True,
+        "session_id": session_id,
+        "filename": session.filename,
+        "status": session.status,
+    }
+
+    if session.file_path and os.path.exists(session.file_path):
+        try:
+            df = pd.read_csv(session.file_path, low_memory=False)
+            columns_info = []
+            column_types = get_column_types(df)
+            for col in df.columns:
+                if col == "__sf_row_id":
+                    continue
+                missing_pct = _safe_rounded(df[col].isnull().mean() * 100, 2)
+                col_info = {
+                    "name": col,
+                    "type": column_types.get(col, "unknown"),
+                    "dtype": str(df[col].dtype),
+                    "missing_count": int(df[col].isnull().sum()),
+                    "missing_pct": missing_pct if missing_pct is not None else 0.0,
+                    "unique_count": int(df[col].nunique()),
+                }
+                columns_info.append(col_info)
+            
+            response_payload["raw"] = {
+                "shape": {
+                    "rows": int(session.original_rows) if session.original_rows else int(df.shape[0]),
+                    "columns": int(session.original_cols) if session.original_cols else int(df.shape[1]),
+                },
+                "health_score": {
+                    "total": session.raw_health_score,
+                    "label": get_score_label(session.raw_health_score) if session.raw_health_score is not None else "Unknown",
+                },
+                "columns_info": columns_info,
+                "data_preview": df_to_json_safe(df, max_rows=500),
+                "column_names": [c for c in df.columns if c != "__sf_row_id"],
+            }
+        except Exception as e:
+            logger.error(f"Error reading raw file for session {session_id}: {e}")
+
+    return JSONResponse(content=_convert_types(response_payload))

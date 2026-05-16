@@ -9,7 +9,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { useData } from '../../context/DataContext';
-import { sendChatMessage, downloadCleanedDataset } from '../../api/api';
+import { sendChatMessage, downloadCleanedDataset, getChatHistory } from '../../api/api';
 import ChatMessage from './ChatMessage';
 import DataViewerModal from './DataViewerModal';
 import './Chatbot.css';
@@ -31,7 +31,12 @@ function ChatbotPage() {
   const [manipulationColumns, setManipulationColumns] = useState([]);
   const [manipulationPage, setManipulationPage] = useState(0);
   const [lastAction, setLastAction] = useState(null);
+  const [chatThreads, setChatThreads] = useState([]);
+  const [currentThreadId, setCurrentThreadId] = useState('default');
+  const [isThreadsLoaded, setIsThreadsLoaded] = useState(false);
   const [showDataViewer, setShowDataViewer] = useState(false);
+  const [showDataPanel, setShowDataPanel] = useState(true);
+  
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -41,6 +46,67 @@ function ChatbotPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Load chat history on mount
+  useEffect(() => {
+    if (sessionId && !isThreadsLoaded) {
+      getChatHistory(sessionId).then(data => {
+        if (data.success && data.threads) {
+          setChatThreads(data.threads);
+          setIsThreadsLoaded(true);
+          
+          if (data.threads.length > 0) {
+            const activeThread = data.threads[data.threads.length - 1];
+            setCurrentThreadId(activeThread.thread_id);
+            
+            const loadedMessages = (activeThread.messages || []).map((m, i) => ({
+              id: Date.now() + i, // Generate fallback IDs
+              role: m.role,
+              content: m.content,
+              action: m.action || null,
+              meta: m.meta || null,
+              timestamp: m.timestamp || new Date().toISOString()
+            }));
+            updateState({ messages: loadedMessages });
+          }
+        }
+      }).catch(err => {
+        console.error("Failed to load chat history", err);
+      });
+    }
+  }, [sessionId, isThreadsLoaded, updateState]);
+
+  const handleNewChat = () => {
+    const newThreadId = 'thread_' + Date.now().toString();
+    const newThread = {
+      thread_id: newThreadId,
+      title: 'New Chat',
+      messages: []
+    };
+    setChatThreads([newThread, ...chatThreads]);
+    setCurrentThreadId(newThreadId);
+    updateState({ messages: [] });
+    setManipulatedPreview([]);
+    setLastAction(null);
+  };
+
+  const handleSwitchThread = (thread) => {
+    if (thread.thread_id === currentThreadId) return;
+    
+    setCurrentThreadId(thread.thread_id);
+    const loadedMessages = (thread.messages || []).map((m, i) => ({
+      id: Date.now() + i,
+      role: m.role,
+      content: m.content,
+      action: m.action || null,
+      meta: m.meta || null,
+      timestamp: m.timestamp || new Date().toISOString()
+    }));
+    updateState({ messages: loadedMessages });
+    
+    setManipulatedPreview([]);
+    setLastAction(null);
+  };
 
   const handleSend = async (messageText = null) => {
     const text = (messageText || input).trim();
@@ -53,9 +119,16 @@ function ChatbotPage() {
     addMessage('user', text);
 
     try {
-      const data = await sendChatMessage(sessionId, text, messages);
+      const data = await sendChatMessage(sessionId, text, messages, currentThreadId);
 
       addMessage('assistant', data.response, data.action_performed, data.response_meta || null);
+
+      // If this is the first message in a new thread, refresh threads to get the AI-generated title
+      if (messages.length === 0) {
+        getChatHistory(sessionId).then(res => {
+          if (res.success && res.threads) setChatThreads(res.threads);
+        });
+      }
 
       if (data.action_performed) {
         toast.success(`✅ Action executed: ${data.action_performed.operation?.replace(/_/g, ' ')}`);
@@ -159,20 +232,29 @@ function ChatbotPage() {
           </div>
         </div>
 
-        {/* Sample Questions */}
-        <div className="chat-samples">
-          <div className="chat-samples-title">💬 Try asking:</div>
-          <div className="chat-samples-list">
-            {SAMPLE_QUESTIONS.map((q, i) => (
-              <button
-                key={i}
-                className="chat-sample-btn"
-                onClick={() => handleSend(q)}
-                disabled={isSending}
-              >
-                {q}
-              </button>
-            ))}
+        {/* New Chat button */}
+        <button className="chat-new-chat-btn" onClick={handleNewChat}>
+          <span style={{ fontSize: '1.1rem' }}>✏️</span> New Chat
+        </button>
+
+        <div className="chat-sidebar-section">
+          <div className="chat-sidebar-section-title">Recent Chats</div>
+          <div className="chat-recent-list">
+            {chatThreads.length === 0 ? (
+              <div className="chat-recent-empty">No conversations yet</div>
+            ) : (
+              [...chatThreads].reverse().map((t) => (
+                <button
+                  key={t.thread_id}
+                  className={`chat-recent-item ${t.thread_id === currentThreadId ? 'active' : ''}`}
+                  onClick={() => handleSwitchThread(t)}
+                  title={t.title}
+                >
+                  <span className="icon">💬</span>
+                  <span className="chat-recent-item-title">{t.title || 'Conversation'}</span>
+                </button>
+              ))
+            )}
           </div>
         </div>
 
@@ -273,12 +355,32 @@ function ChatbotPage() {
             </div>
           </div>
 
-          <div className="chat-manipulation-panel">
+          {/* Show-panel tab when collapsed */}
+          {!showDataPanel && (
+            <button
+              className="chat-panel-show-tab"
+              onClick={() => setShowDataPanel(true)}
+              title="Show Dataset Manipulation View"
+            >
+              ◀ Data
+            </button>
+          )}
+
+          <div className={`chat-manipulation-panel ${showDataPanel ? '' : 'chat-panel-hidden'}`}>
             <div className="chat-manipulation-header">
               <h3>Dataset Manipulation View</h3>
-              <span className="badge badge-primary">
-                {manipulatedPreview.length > 0 ? `${manipulatedPreview.length} rows` : 'No edits yet'}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="badge badge-primary">
+                  {manipulatedPreview.length > 0 ? `${manipulatedPreview.length} rows` : 'No edits yet'}
+                </span>
+                <button
+                  className="chat-panel-toggle-btn"
+                  onClick={() => setShowDataPanel(p => !p)}
+                  title="Hide panel"
+                >
+                  ⟩
+                </button>
+              </div>
             </div>
 
             {lastAction && (

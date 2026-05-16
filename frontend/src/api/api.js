@@ -91,6 +91,14 @@ export const uploadDataset = async (file, onProgress) => {
   return response.data;
 };
 
+/**
+ * Get session details
+ */
+export const getSession = async (sessionId) => {
+  const response = await api.get(`/api/session/${sessionId}`);
+  return response.data;
+};
+
 
 /**
  * Phase 2: Run automated cleaning pipeline.
@@ -216,11 +224,13 @@ export const getVisualizations = async (sessionId) => {
 /**
  * Phase 4: Send a chat message to the AI chatbot.
  */
-export const sendChatMessage = async (sessionId, message, history = []) => {
-  const response = await api.post(`/api/chat/${sessionId}`, {
+export const sendChatMessage = async (sessionId, message, history = [], threadId = 'default') => {
+  const payload = {
     message,
     history,
-  });
+    thread_id: threadId,
+  };
+  const response = await api.post(`/api/chat/${sessionId}`, payload);
   return response.data;
 };
 

@@ -57,6 +57,8 @@ class DataSession(Base):
                               comment="JSON summary of all cleaning operations applied")
     review_summary = Column(JSON, nullable=True,
                             comment="JSON summary of review decisions and version history")
+    chat_history = Column(JSON, nullable=True,
+                          comment="JSON array of chat conversation messages")
 
     # ── Status Tracking ────────────────────────────────────────────────────────
     status = Column(

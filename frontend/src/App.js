@@ -22,7 +22,7 @@ import ChatbotPage from './components/Chatbot/ChatbotPage';
  */
 function GuardedRoute({ children, requiredStep, currentStep }) {
   if (currentStep < requiredStep) {
-    const redirectPaths = ['/upload', '/dashboard', '/visualize', '/chat'];
+    const redirectPaths = ['/', '/dashboard', '/visualize', '/chat'];
     const safePath = redirectPaths[currentStep] || '/';
     return <Navigate to={safePath} replace />;
   }

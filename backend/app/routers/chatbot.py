@@ -47,6 +47,10 @@ class ChatRequest(BaseModel):
         default_factory=list,
         description="Optional client-side history fallback when server-side chat history is unavailable"
     )
+    thread_id: str = Field(
+        default="default",
+        description="ID of the chat thread"
+    )
 
 
 @router.post("/chat/{session_id}", summary="Chat with AI about your dataset")
@@ -94,14 +98,31 @@ async def chat(
             detail=f"Could not load cleaned data: {str(exc)}"
         )
 
-    # ── Load Conversation History from MongoDB ────────────────────────────────
-    conversation_history = []
-    if mongo_db is not None:
-        history_doc = await mongo_db.chat_history.find_one(
-            {"session_id": session_id}
-        )
-        if history_doc:
-            conversation_history = history_doc.get("messages", [])
+    # ── Load Conversation History from Postgres ────────────────────────
+    chat_data = session.chat_history or {"threads": []}
+    
+    # Handle legacy list structure
+    if isinstance(chat_data, list):
+        chat_data = {
+            "threads": [{
+                "thread_id": "default",
+                "title": "New Chat",
+                "messages": chat_data
+            }]
+        }
+    
+    threads = chat_data.get("threads", [])
+    current_thread = next((t for t in threads if t.get("thread_id") == request.thread_id), None)
+    
+    if current_thread is None:
+        current_thread = {
+            "thread_id": request.thread_id,
+            "title": request.message[:30] + ("..." if len(request.message) > 30 else ""),
+            "messages": []
+        }
+        threads.append(current_thread)
+    
+    conversation_history = current_thread.get("messages", [])
 
     # Fallback to client-provided history if server-side history is unavailable.
     if not conversation_history and request.history:
@@ -192,11 +213,19 @@ async def chat(
 
     conversation_history.append(new_user_message)
     conversation_history.append(new_assistant_message)
+    
+    current_thread["messages"] = conversation_history
+    chat_data["threads"] = threads
+    session.chat_history = chat_data
+    
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(session, "chat_history")
+    await db.commit()
 
     if mongo_db is not None:
         await mongo_db.chat_history.update_one(
             {"session_id": session_id},
-            {"$set": {"session_id": session_id, "messages": conversation_history}},
+            {"$set": {"session_id": session_id, "threads": threads}},
             upsert=True,
         )
 
@@ -230,28 +259,59 @@ async def chat(
 @router.get("/chat/{session_id}/history", summary="Retrieve chat history")
 async def get_chat_history(
     session_id: str,
+    db: AsyncSession = Depends(get_db),
     mongo_db=Depends(get_mongo_db),
 ):
-    """Return the full conversation history for a session."""
-    messages = []
-    if mongo_db is not None:
+    """Return the full conversation threads for a session."""
+    result = await db.execute(select(DataSession).where(DataSession.session_id == session_id))
+    session = result.scalar_one_or_none()
+    
+    chat_data = {"threads": []}
+    if session and session.chat_history:
+        if isinstance(session.chat_history, list):
+            chat_data = {
+                "threads": [{
+                    "thread_id": "default",
+                    "title": "New Chat",
+                    "messages": session.chat_history
+                }]
+            }
+        else:
+            chat_data = session.chat_history
+    elif mongo_db is not None:
         doc = await mongo_db.chat_history.find_one({"session_id": session_id})
         if doc:
-            messages = doc.get("messages", [])
+            if "threads" in doc:
+                chat_data = {"threads": doc.get("threads", [])}
+            elif "messages" in doc:
+                chat_data = {
+                    "threads": [{
+                        "thread_id": "default",
+                        "title": "New Chat",
+                        "messages": doc.get("messages", [])
+                    }]
+                }
 
     return JSONResponse(content={
         "success": True,
         "session_id": session_id,
-        "messages": messages,
+        "threads": chat_data.get("threads", []),
     })
 
 
 @router.delete("/chat/{session_id}", summary="Clear conversation history")
 async def clear_chat_history(
     session_id: str,
+    db: AsyncSession = Depends(get_db),
     mongo_db=Depends(get_mongo_db),
 ):
     """Delete all chat messages for a session, starting fresh."""
+    result = await db.execute(select(DataSession).where(DataSession.session_id == session_id))
+    session = result.scalar_one_or_none()
+    if session:
+        session.chat_history = []
+        await db.commit()
+
     if mongo_db is not None:
         await mongo_db.chat_history.delete_one({"session_id": session_id})
 

@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDropzone } from 'react-dropzone';
 import { useData } from '../../context/DataContext';
-import { uploadDataset } from '../../api/api';
+import { uploadDataset, getSession, getReviewState } from '../../api/api';
 import toast from 'react-hot-toast';
 import './HomePage.css';
 
@@ -252,7 +252,7 @@ function UploadModal({ onClose, onSuccess }) {
 // ── Main HomePage Component ───────────────────────────────────────────────────
 function HomePage() {
   const navigate = useNavigate();
-  const { setUploadData, resetAll } = useData();
+  const { setUploadData, setCleaningData, resetAll } = useData();
 
   const [recentProjects, setRecentProjects] = useState([]);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -279,11 +279,68 @@ function HomePage() {
     localStorage.setItem(RECENT_KEY, JSON.stringify(updated));
   };
 
-  const handleOpenRecent = (project) => {
-    toast(
-      `"${project.filename}" was from a previous session. Please re-upload to continue analysis.`,
-      { icon: 'ℹ️', duration: 5000 }
-    );
+  const handleOpenRecent = async (project) => {
+    if (!project.sessionId) {
+      toast('This project does not have a saved session.', { icon: 'ℹ️' });
+      return;
+    }
+    const toastId = toast.loading(`Resuming ${project.filename}...`);
+    try {
+      // Get base session details (raw data)
+      const sessionData = await getSession(project.sessionId);
+      
+      if (!sessionData.success || !sessionData.raw) {
+        throw new Error('Session data could not be retrieved');
+      }
+
+      setUploadData({
+        session_id: sessionData.session_id,
+        filename: sessionData.filename,
+        shape: sessionData.raw.shape,
+        health_score: sessionData.raw.health_score,
+        columns_info: sessionData.raw.columns_info,
+        data_preview: sessionData.raw.data_preview,
+        column_names: sessionData.raw.column_names,
+        quality_scorecard: null,
+        anomaly_report: null,
+      });
+
+      // Try to get cleaned state if available
+      if (sessionData.status !== 'uploaded') {
+        try {
+          const reviewData = await getReviewState(project.sessionId);
+          if (reviewData.success) {
+            setCleaningData({
+              cleaned_shape: reviewData.cleaned_shape,
+              cleaned_health_score: reviewData.cleaned_health_score,
+              cleaning_report: reviewData.cleaning_report,
+              pipeline_script: reviewData.pipeline_script || null,
+              raw_preview: reviewData.raw_preview,
+              cleaned_preview: reviewData.cleaned_preview,
+              modified_cells: reviewData.modified_cells || [],
+              change_log: reviewData.change_log || [],
+              change_summary: reviewData.change_summary || null,
+              review_summary: reviewData.review_summary || null,
+              workflow_state: reviewData.workflow_state || null,
+              status: reviewData.status || null,
+              quality_scorecard: reviewData.quality_scorecard || null,
+              anomaly_report: reviewData.anomaly_report || null,
+              approval_guardrails: reviewData.approval_guardrails || null,
+            });
+            toast.success('Session resumed with cleaned data!', { id: toastId });
+            navigate('/dashboard');
+            return;
+          }
+        } catch (e) {
+          console.warn('Could not load cleaned state, continuing with raw data', e);
+        }
+      }
+
+      toast.success('Session resumed with raw data!', { id: toastId });
+      navigate('/dashboard');
+    } catch (err) {
+      toast.error('Failed to resume session. Please re-upload.', { id: toastId });
+    }
   };
 
   const filteredProjects = recentProjects.filter((p) =>
