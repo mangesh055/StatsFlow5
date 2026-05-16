@@ -1,0 +1,150 @@
+/* ── Navbar ─────────────────────────────────────────────────── */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 28px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.navbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.navbar-logo {
+  width: 38px;
+  height: 38px;
+  background: var(--gradient-brand);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-primary);
+}
+
+.navbar-logo-icon {
+  font-size: 1.2rem;
+}
+
+.navbar-title {
+  font-size: 1.1rem;
+  font-weight: 800;
+  background: var(--gradient-brand);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.navbar-subtitle {
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+/* ── Pipeline Steps ─────────────────────────────────────────── */
+.navbar-steps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.navbar-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.navbar-step:hover:not(:disabled):not(.navbar-step--active) {
+  background: var(--color-bg-muted);
+  color: var(--color-text-primary);
+}
+
+.navbar-step--active {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.navbar-step--completed {
+  color: var(--color-success);
+}
+
+.navbar-step--locked {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.navbar-step-arrow {
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  margin-left: 4px;
+}
+
+/* ── Right Side ─────────────────────────────────────────────── */
+.navbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.navbar-file-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: var(--color-bg-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+}
+
+.navbar-filename {
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.navbar-reset-btn {
+  padding: 6px 14px;
+  font-size: 0.8rem;
+}
+
+.navbar-theme-btn {
+  padding: 6px 12px;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .navbar {
+  background: rgba(12, 18, 32, 0.9);
+}
+
+@media (max-width: 768px) {
+  .navbar-step-label { display: none; }
+  .navbar-subtitle { display: none; }
+}

@@ -1,0 +1,6 @@
+﻿node_modules/
+backend/statsflow.db
+*.pyc
+__pycache__/
+.env
+.DS_Store
