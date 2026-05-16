@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area,
   PieChart, Pie, Cell, ScatterChart, Scatter,
@@ -101,7 +102,7 @@ function LivePreview({ catId, subtypeId, data, xKey, yKey, yKey2 }) {
   if (!data || data.length === 0) {
     return <div className="ict-preview-empty">No data available for preview</div>;
   }
-  const h = 220;
+  const h = "100%";
   const commonProps = { data, margin: { top: 10, right: 16, left: -10, bottom: 36 } };
   const axis = <>
     <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" vertical={false}/>
@@ -194,7 +195,7 @@ export default function InsertChartModal({ columnNames = [], previewRows = [], o
     onClose();
   };
 
-  return (
+  return createPortal(
     <div className="ict-overlay" onClick={onClose}>
       <div className="ict-dialog" onClick={e => e.stopPropagation()}>
 
@@ -283,7 +284,9 @@ export default function InsertChartModal({ columnNames = [], previewRows = [], o
                 {/* Live preview */}
                 <div className="ict-preview-box">
                   <div className="ict-preview-label">Chart Preview</div>
-                  <LivePreview catId={category} subtypeId={subtype} data={chartData} xKey={xKey} yKey={yKey} yKey2={yKey2||undefined}/>
+                  <div className="ict-preview-wrapper">
+                    <LivePreview catId={category} subtypeId={subtype} data={chartData} xKey={xKey} yKey={yKey} yKey2={yKey2||undefined}/>
+                  </div>
                 </div>
               </div>
             </>
@@ -314,6 +317,7 @@ export default function InsertChartModal({ columnNames = [], previewRows = [], o
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

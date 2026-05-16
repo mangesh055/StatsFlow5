@@ -5,6 +5,7 @@
  * Enforces the 4-step linear workflow with route guards.
  */
 
+// new changes
 import React, { useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useData } from './context/DataContext';

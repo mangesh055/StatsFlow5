@@ -613,8 +613,8 @@ def _build_review_response(
             **review_summary,
             "changes": _merge_decisions_into_changes(changes, decisions),
         },
-        "raw_preview": df_to_json_safe(_public_df(raw_with_row_id), max_rows=50),
-        "cleaned_preview": df_to_json_safe(cleaned_public_df, max_rows=50),
+        "raw_preview": df_to_json_safe(_public_df(raw_with_row_id), max_rows=500),
+        "cleaned_preview": df_to_json_safe(cleaned_public_df, max_rows=500),
         "modified_cells": review_summary.get("modified_cells", []),
         "change_log": _merge_decisions_into_changes(changes, decisions),
         "change_summary": review_summary.get("change_summary", {}),
@@ -755,8 +755,8 @@ async def clean_dataset(
             "anomaly_report": anomaly_report,
             "cleaning_report": cleaning_report,
             "pipeline_script": pipeline_script,
-            "raw_preview": df_to_json_safe(_public_df(raw_with_row_id), max_rows=50),
-            "cleaned_preview": df_to_json_safe(cleaned_public_df, max_rows=50),
+            "raw_preview": df_to_json_safe(_public_df(raw_with_row_id), max_rows=500),
+            "cleaned_preview": df_to_json_safe(cleaned_public_df, max_rows=500),
             "modified_cells": change_bundle["modified_cells"],
             "change_log": change_bundle["change_log"],
             "change_summary": change_bundle["summary"],
@@ -779,6 +779,59 @@ async def get_review_state(session_id: str, db: AsyncSession = Depends(get_db)):
     cleaned_with_row_id = _load_cleaned_with_row_id(session)
     payload = _build_review_response(session, raw_with_row_id, cleaned_with_row_id)
     return JSONResponse(content=payload)
+
+
+@router.get("/clean/{session_id}/data", summary="Get paginated cleaned or raw data rows")
+async def get_paginated_data(
+    session_id: str,
+    page: int = 0,
+    page_size: int = 100,
+    dataset: str = "cleaned",  # "cleaned" or "raw"
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Server-side pagination endpoint for large datasets.
+    Returns `page_size` rows starting from `page * page_size`.
+    Max page_size capped at 1000 rows per request.
+    """
+    result = await db.execute(select(DataSession).where(DataSession.session_id == session_id))
+    session = result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    page_size = min(max(1, page_size), 1000)
+    page = max(0, page)
+
+    try:
+        if dataset == "raw":
+            df = _public_df(_load_raw_with_row_id(session))
+        else:
+            df = _public_df(_load_cleaned_with_row_id(session))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load data: {str(exc)}")
+
+    total_rows = int(df.shape[0])
+    total_pages = max(1, -(-total_rows // page_size))  # ceiling division
+    start = page * page_size
+    end = min(start + page_size, total_rows)
+    page_df = df.iloc[start:end]
+
+    return JSONResponse(content={
+        "success": True,
+        "session_id": session_id,
+        "dataset": dataset,
+        "total_rows": total_rows,
+        "total_pages": total_pages,
+        "page": page,
+        "page_size": page_size,
+        "start_row": start,
+        "end_row": end,
+        "rows": df_to_json_safe(page_df, max_rows=page_size),
+        "columns_info": _columns_info(df),
+    })
 
 
 @router.get("/clean/{session_id}/download", summary="Download the cleaned dataset as CSV")
@@ -877,7 +930,7 @@ async def edit_cleaned_cell(
                     "manual_edit",
                 ),
             },
-            "cleaned_preview": df_to_json_safe(working_public_df, max_rows=50),
+            "cleaned_preview": df_to_json_safe(working_public_df, max_rows=500),
             "cleaned_health_score": metrics["health"],
             "quality_scorecard": metrics.get("quality_scorecard"),
             "columns_info": _columns_info(working_public_df),
@@ -1052,7 +1105,7 @@ async def revert_selected_changes(
                 **cleaned_health,
                 "label": get_score_label(cleaned_health["total"]),
             },
-            "cleaned_preview": df_to_json_safe(cleaned_public_df, max_rows=50),
+            "cleaned_preview": df_to_json_safe(cleaned_public_df, max_rows=500),
             "modified_cells": change_bundle["modified_cells"],
             "change_log": change_bundle["change_log"],
             "change_summary": change_bundle["summary"],

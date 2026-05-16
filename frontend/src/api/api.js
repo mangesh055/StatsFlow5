@@ -256,4 +256,43 @@ export const downloadPipeline = async (
 };
 
 
-export default api;
+/**
+ * Commit a manual version snapshot of the current cleaned dataset.
+ */
+export const commitDatasetVersion = async (sessionId, message) => {
+  const response = await api.post(`/api/chat/${sessionId}/commit`, { message });
+  return response.data;
+};
+
+/**
+ * List all saved versions for a session.
+ */
+export const getDatasetVersions = async (sessionId) => {
+  const response = await api.get(`/api/chat/${sessionId}/versions`);
+  return response.data;
+};
+
+/**
+ * Rollback the cleaned dataset to a specific version.
+ */
+export const rollbackDatasetVersion = async (sessionId, filename) => {
+  const response = await api.post(`/api/chat/${sessionId}/rollback`, { filename });
+  return response.data;
+};
+
+/**
+ * Fetch a specific page of dataset rows from the server.
+ * Supports both "cleaned" and "raw" datasets.
+ * @param {string} sessionId
+ * @param {number} page        - 0-based page index
+ * @param {number} pageSize    - rows per page (max 1000)
+ * @param {string} dataset     - "cleaned" or "raw"
+ */
+export const getPagedData = async (sessionId, page = 0, pageSize = 100, dataset = 'cleaned') => {
+  const response = await api.get(`/api/clean/${sessionId}/data`, {
+    params: { page, page_size: pageSize, dataset },
+  });
+  return response.data;
+};
+
+export default api;

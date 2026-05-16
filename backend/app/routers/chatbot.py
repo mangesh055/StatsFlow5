@@ -211,7 +211,7 @@ async def chat(
         "response": response_message,
         "action_performed": action_performed,
         "response_meta": response_meta,
-        "cleaned_preview": df_to_json_safe(active_df, max_rows=50),
+        "cleaned_preview": df_to_json_safe(active_df, max_rows=500),
         "columns_info": columns_info,
         "cleaned_shape": {
             "rows": int(active_df.shape[0]),
@@ -264,6 +264,61 @@ async def clear_chat_history(
 class RollbackRequest(BaseModel):
     """Request body for rollback endpoint."""
     filename: str = Field(..., description="Version filename to restore (e.g. 20240501T123000Z.csv)")
+
+
+class CommitRequest(BaseModel):
+    """Request body for manual commit endpoint."""
+    message: str = Field(..., description="User provided commit message")
+
+
+@router.post("/chat/{session_id}/commit", summary="Manually commit current dataset state")
+async def commit_version(
+    session_id: str,
+    request: CommitRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(DataSession).where(DataSession.session_id == session_id)
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    if not session.cleaned_file_path or not os.path.exists(session.cleaned_file_path):
+        raise HTTPException(status_code=400, detail="No cleaned file to commit.")
+
+    try:
+        versions_root = os.path.join(os.path.dirname(session.cleaned_file_path), "versions", session.session_id)
+        Path(versions_root).mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        backup_name = f"{timestamp}.csv"
+        backup_path = os.path.join(versions_root, backup_name)
+        
+        import shutil
+        shutil.copy(session.cleaned_file_path, backup_path)
+
+        review = session.review_summary or {}
+        versions = review.get("versions", [])
+        versions.insert(0, {
+            "path": backup_path,
+            "filename": backup_name,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "trigger": "manual_commit",
+            "action": {"operation": request.message},
+        })
+        review["versions"] = versions
+        session.review_summary = review
+        
+        # We need to tell SQLAlchemy that the JSON column changed
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(session, "review_summary")
+        await db.commit()
+        
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to commit version: {exc}")
+
+    return JSONResponse(content={"success": True, "message": "Commit created.", "session_id": session_id})
 
 
 @router.get("/chat/{session_id}/versions", summary="List saved cleaned-file versions")

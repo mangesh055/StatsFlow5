@@ -1879,6 +1879,7 @@ SYSTEM_PROMPT_TEMPLATE = """You are StatsFlow's AI Data Analyst — a friendly, 
 3. **Be conversational** — short, clear answers beat long generic explanations.
 4. **If something is ambiguous**, pick the most reasonable interpretation and answer it, then mention your assumption.
 5. **For action requests**, confirm what you will do before listing the operation.
+6. **IMPORTANT: You MUST return your response as a valid JSON object**.
 
 ## Dataset Context
 {dataset_context}
@@ -2058,7 +2059,8 @@ async def chat_with_dataset(
                         dataset_context=json.dumps(dataset_context, indent=2)
                     )
 
-                    messages = conversation_history.copy()
+                    # Only keep role and content to prevent API errors for unsupported properties like 'action' and 'meta'
+                    messages = [{"role": msg.get("role"), "content": msg.get("content")} for msg in conversation_history]
                     messages.append({"role": "user", "content": effective_message})
 
                     response = await client.chat.completions.create(
@@ -2138,7 +2140,8 @@ async def chat_with_dataset(
                         dataset_context=json.dumps(dataset_context, indent=2)
                     )
 
-                    messages = conversation_history.copy()
+                    # Only keep role and content to prevent API errors for unsupported properties like 'action' and 'meta'
+                    messages = [{"role": msg.get("role"), "content": msg.get("content")} for msg in conversation_history]
                     messages.append({"role": "user", "content": effective_message})
 
                     # OpenAI-compatible APIs generally expect system in the messages list.
@@ -2191,7 +2194,8 @@ async def chat_with_dataset(
                 dataset_context=json.dumps(dataset_context, indent=2)
             )
 
-            messages = conversation_history.copy()
+            # Only keep role and content to prevent API errors for unsupported properties like 'action' and 'meta'
+            messages = [{"role": msg.get("role"), "content": msg.get("content")} for msg in conversation_history]
             messages.append({"role": "user", "content": effective_message})
 
             response = await client.messages.create(

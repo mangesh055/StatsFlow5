@@ -176,7 +176,7 @@ async def upload_dataset(
         },
         "anomaly_report": anomaly_report,
         "columns_info": columns_info,
-        "data_preview": df_to_json_safe(df, max_rows=50),
+        "data_preview": df_to_json_safe(df, max_rows=500),
         "column_names": list(df.columns),
     }
     return JSONResponse(content=_convert_types(response_payload))
