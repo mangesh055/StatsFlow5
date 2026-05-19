@@ -6,6 +6,7 @@ from app.config import settings
 from app.models.postgres_models import DataSession
 from app.services.cleaning_engine import CleaningEngine
 import pandas as pd
+from app.routers.cleaning import _build_change_bundle
 
 async def test_clean():
     engine = create_async_engine(settings.database_url)
@@ -14,36 +15,33 @@ async def test_clean():
     async with async_session() as session:
         result = await session.execute(select(DataSession).order_by(DataSession.created_at.desc()))
         db_session = result.scalars().first()
-        if not db_session:
-            print("No session found.")
-            return
 
-        print(f"Testing session {db_session.session_id} - {db_session.filename}")
+        print(f"Testing session {db_session.session_id}")
         
         raw_df = pd.read_csv(db_session.file_path, low_memory=False)
-        # _load_raw_with_row_id logic
         raw_df["__sf_row_id"] = range(len(raw_df))
         
         try:
-            # We skip AI impute because missing_strategy="auto"
             engine_clean = CleaningEngine(raw_df)
             cleaned_with_row_id, cleaning_report, operations = engine_clean.clean(
-                missing_strategy="mean", # assume resolved
-                outlier_strategy="iqr"   # assume resolved
+                missing_strategy="mean",
+                outlier_strategy="iqr"
             )
-            print("Cleaned shape:", cleaned_with_row_id.shape)
             
-            from app.services.health_score import compute_health_score
-            cleaned_public_df = cleaned_with_row_id.drop(columns=["__sf_row_id"], errors="ignore")
-            cleaned_health = compute_health_score(cleaned_public_df)
+            bundle = _build_change_bundle(
+                raw_with_row_id=raw_df,
+                cleaned_with_row_id=cleaned_with_row_id,
+                cleaning_report=cleaning_report,
+            )
+            print("Done change bundle!", len(bundle))
             
-            from app.services.quality_scorecard import compute_quality_scorecard
-            cleaned_quality = compute_quality_scorecard(cleaned_public_df)
-            
-            from app.services.anomaly_detection import detect_anomalies
-            anomalies = detect_anomalies(cleaned_public_df)
-            print("Done anomalies!")
-            
+            from app.routers.cleaning import _build_review_state_response
+            response = _build_review_state_response(
+                session=db_session,
+                raw_with_row_id=raw_df,
+                cleaned_with_row_id=cleaned_with_row_id
+            )
+            print("Done review response!")
         except Exception as e:
             import traceback
             traceback.print_exc()
