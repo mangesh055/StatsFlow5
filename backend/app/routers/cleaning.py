@@ -84,6 +84,14 @@ class FinalizeRequest(BaseModel):
     notes: Optional[str] = None
 
 
+class FeatureEngineeringApplyRequest(BaseModel):
+    """Apply selected AI-suggested features to the cleaned dataset."""
+    selected_features: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="List of validated feature specs to apply"
+    )
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -645,10 +653,22 @@ async def clean_dataset(
 
     if resolved_missing_strategy == "ai_impute":
         from app.services.ai_imputer import impute_missing_with_ai
-        # Run AI imputation before normal cleaning
-        raw_with_row_id = await impute_missing_with_ai(raw_with_row_id)
+        # Step 1: Normalize placeholder strings ("-", "NA", "/", etc.) → real NaN
+        # so that pandas .isnull() correctly detects them for AI imputation.
+        _pre_engine = CleaningEngine(raw_with_row_id)
+        _pre_engine._normalize_placeholder_missing_values()
+        normalized_df = _pre_engine.df  # df with real NaN where placeholders were
 
-    engine = CleaningEngine(raw_with_row_id)
+        # Step 2: AI imputation on the normalized dataframe
+        ai_imputed_df = await impute_missing_with_ai(normalized_df)
+
+        # Step 3: Pass AI-imputed df as the "raw" baseline for the main engine
+        # The engine will skip imputation (strategy == 'ai_impute') and only do
+        # duplicate removal, high-null column drops, outlier treatment, etc.
+        engine = CleaningEngine(ai_imputed_df)
+    else:
+        engine = CleaningEngine(raw_with_row_id)
+
     cleaned_with_row_id, cleaning_report, operations = engine.clean(
         missing_strategy=resolved_missing_strategy,
         outlier_strategy=resolved_outlier_strategy,
@@ -1322,3 +1342,112 @@ async def export_pipeline(
         },
         media_type="text/plain",
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feature Engineering Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get(
+    "/clean/{session_id}/feature-engineering/suggest",
+    summary="Ask AI to suggest new features for the cleaned dataset",
+)
+async def suggest_features_endpoint(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Analyzes the cleaned dataset and uses an LLM to propose meaningful
+    new engineered features (ratios, transforms, interactions, binning, etc.).
+    Returns a list of validated, previewable feature specs for the user to review.
+    """
+    from app.services.feature_engineering_service import suggest_features
+
+    result = await db.execute(select(DataSession).where(DataSession.session_id == session_id))
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+
+    # Prefer approved → cleaned → raw
+    target_path = (
+        session.approved_file_path
+        or session.cleaned_file_path
+        or session.file_path
+    )
+    if not target_path or not os.path.exists(target_path):
+        raise HTTPException(status_code=404, detail="No dataset found. Run cleaning first.")
+
+    try:
+        df = pd.read_csv(target_path, low_memory=False)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load dataset: {exc}")
+
+    df = _ensure_row_id(df)
+
+    suggestions = await suggest_features(df)
+
+    return JSONResponse(content={
+        "success": True,
+        "session_id": session_id,
+        "suggestion_count": len(suggestions),
+        "suggestions": suggestions,
+    })
+
+
+@router.post(
+    "/clean/{session_id}/feature-engineering/apply",
+    summary="Apply AI-selected features to the cleaned dataset",
+)
+async def apply_features_endpoint(
+    session_id: str,
+    request: FeatureEngineeringApplyRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Applies the user-approved feature specs to the cleaned dataset,
+    saves the updated CSV, and returns the new column info + preview.
+    """
+    from app.services.feature_engineering_service import apply_features
+
+    result = await db.execute(select(DataSession).where(DataSession.session_id == session_id))
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+
+    if not request.selected_features:
+        raise HTTPException(status_code=422, detail="No features selected to apply.")
+
+    target_path = session.cleaned_file_path or session.file_path
+    if not target_path or not os.path.exists(target_path):
+        raise HTTPException(status_code=404, detail="No cleaned dataset found. Run cleaning first.")
+
+    try:
+        df = pd.read_csv(target_path, low_memory=False)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load dataset: {exc}")
+
+    df = _ensure_row_id(df)
+
+    updated_df, apply_log = apply_features(df, request.selected_features)
+
+    # Overwrite the cleaned file with new features included
+    updated_df.to_csv(target_path, index=False)
+
+    # Update session metadata
+    public_updated = _public_df(updated_df)
+    session.cleaned_cols = int(public_updated.shape[1])
+    session.cleaned_health_score = compute_health_score(public_updated)["total"]
+    await db.flush()
+
+    return JSONResponse(content={
+        "success": True,
+        "session_id": session_id,
+        "features_applied": len([f for f in apply_log if f["status"] == "applied"]),
+        "apply_log": apply_log,
+        "new_shape": {
+            "rows": int(public_updated.shape[0]),
+            "columns": int(public_updated.shape[1]),
+        },
+        "columns_info": _columns_info(public_updated),
+        "cleaned_preview": df_to_json_safe(public_updated, max_rows=100),
+    })

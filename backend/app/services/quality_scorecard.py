@@ -31,10 +31,14 @@ def _as_utc_now() -> datetime:
 
 def _candidate_datetime_series(series: pd.Series) -> pd.Series:
     """Try to parse a column as datetimes while preserving NaNs."""
-    if pd.api.types.is_datetime64_any_dtype(series):
-        return pd.to_datetime(series, errors="coerce", utc=True)
-
     try:
+        if pd.api.types.is_datetime64_any_dtype(series):
+            # If it's already a datetime but tz-aware, converting to utc=True can fail in some pandas versions
+            # if we don't coerce properly, but we'll try to convert it.
+            if series.dt.tz is not None:
+                return series.dt.tz_convert('UTC')
+            return series.dt.tz_localize('UTC')
+
         return pd.to_datetime(series, errors="coerce", utc=True)
     except Exception:
         return pd.Series([pd.NaT] * len(series), index=series.index)

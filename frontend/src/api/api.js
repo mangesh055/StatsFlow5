@@ -305,4 +305,23 @@ export const getPagedData = async (sessionId, page = 0, pageSize = 100, dataset 
   return response.data;
 };
 
-export default api;
+/**
+ * Feature Engineering: ask AI to suggest new features.
+ */
+export const suggestFeatures = async (sessionId) => {
+  const response = await api.get(`/api/clean/${sessionId}/feature-engineering/suggest`);
+  return response.data;
+};
+
+/**
+ * Feature Engineering: apply selected features to the cleaned dataset.
+ */
+export const applyFeatures = async (sessionId, selectedFeatures) => {
+  const response = await api.post(`/api/clean/${sessionId}/feature-engineering/apply`, {
+    selected_features: selectedFeatures,
+  });
+  return response.data;
+};
+
+export default api;
+
