@@ -36,7 +36,7 @@ ROW_ID_COL = "__sf_row_id"
 class CleaningRequest(BaseModel):
     """Request body for the cleaning endpoint."""
 
-    missing_strategy: Literal["auto", "mean", "median", "mode", "knn", "drop"] = Field(
+    missing_strategy: Literal["auto", "mean", "median", "mode", "knn", "drop", "ai_impute"] = Field(
         default="auto",
         description="Strategy for handling missing values",
     )
@@ -642,6 +642,11 @@ async def clean_dataset(
         missing_strategy=request.missing_strategy,
         outlier_strategy=request.outlier_strategy,
     )
+
+    if resolved_missing_strategy == "ai_impute":
+        from app.services.ai_imputer import impute_missing_with_ai
+        # Run AI imputation before normal cleaning
+        raw_with_row_id = await impute_missing_with_ai(raw_with_row_id)
 
     engine = CleaningEngine(raw_with_row_id)
     cleaned_with_row_id, cleaning_report, operations = engine.clean(

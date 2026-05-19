@@ -281,11 +281,15 @@ class CleaningEngine:
         Impute missing values according to the chosen strategy.
 
         Args:
-            strategy: One of 'mean', 'median', 'mode', 'knn', 'drop'.
+            strategy: One of 'mean', 'median', 'mode', 'knn', 'drop', 'ai_impute', 'none'.
 
         Returns:
             Dict with per-column imputation details.
         """
+        if strategy in ("ai_impute", "none"):
+            # If AI impute was chosen, the missing values were already filled outside the engine.
+            return {"strategy": strategy, "details": "Handled externally"}
+            
         numeric_cols = self.df.select_dtypes(include=[np.number]).columns.tolist()
         categorical_cols = self.df.select_dtypes(
             include=["object", "category"]

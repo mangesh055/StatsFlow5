@@ -31,6 +31,7 @@ const MISSING_STRATEGIES = [
   { value: 'mode', label: 'Mode', desc: 'Replace missing values with most frequent value' },
   { value: 'knn', label: 'KNN', desc: 'K-Nearest Neighbors imputation (slower, stronger)' },
   { value: 'drop', label: 'Drop', desc: 'Remove all rows with any missing values' },
+  { value: 'ai_impute', label: 'Smart Fill (AI)', desc: 'Use AI to contextually predict missing values' },
 ];
 
 const OUTLIER_STRATEGIES = [
