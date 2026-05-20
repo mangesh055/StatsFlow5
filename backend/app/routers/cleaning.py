@@ -24,7 +24,7 @@ from app.services.health_score import compute_health_score, get_score_label
 from app.services.quality_scorecard import compute_quality_scorecard
 from app.services.anomaly_detection import detect_anomalies, build_partner_profile
 from app.services.pipeline_generator import generate_pipeline_script
-from app.utils.helpers import df_to_json_safe, get_column_types
+from app.utils.helpers import df_to_json_safe, get_column_types, _convert_types
 import logging
 
 router = APIRouter(prefix="/api", tags=["Cleaning"])
@@ -756,7 +756,7 @@ async def clean_dataset(
     )
 
     return JSONResponse(
-        content={
+        content=_convert_types({
             "success": True,
             "session_id": session_id,
             "status": session.status,
@@ -788,7 +788,7 @@ async def clean_dataset(
             "approval_guardrails": review_summary.get("approval_guardrails", {}),
             "columns_info": _columns_info(cleaned_public_df),
             "review_summary": review_summary,
-        }
+        })
     )
 
 
@@ -803,7 +803,7 @@ async def get_review_state(session_id: str, db: AsyncSession = Depends(get_db)):
     raw_with_row_id = _load_raw_with_row_id(session)
     cleaned_with_row_id = _load_cleaned_with_row_id(session)
     payload = _build_review_response(session, raw_with_row_id, cleaned_with_row_id)
-    return JSONResponse(content=payload)
+    return JSONResponse(content=_convert_types(payload))
 
 
 @router.get("/clean/{session_id}/data", summary="Get paginated cleaned or raw data rows")
@@ -844,7 +844,7 @@ async def get_paginated_data(
     end = min(start + page_size, total_rows)
     page_df = df.iloc[start:end]
 
-    return JSONResponse(content={
+    return JSONResponse(content=_convert_types({
         "success": True,
         "session_id": session_id,
         "dataset": dataset,
@@ -856,7 +856,7 @@ async def get_paginated_data(
         "end_row": end,
         "rows": df_to_json_safe(page_df, max_rows=page_size),
         "columns_info": _columns_info(df),
-    })
+    }))
 
 
 @router.get("/clean/{session_id}/download", summary="Download the cleaned dataset as CSV")
@@ -932,7 +932,7 @@ async def edit_cleaned_cell(
     metrics = _session_metrics_payload(session, working_public_df)
 
     return JSONResponse(
-        content={
+        content=_convert_types({
             "success": True,
             "session_id": session_id,
             "status": session.status,
@@ -959,7 +959,7 @@ async def edit_cleaned_cell(
             "cleaned_health_score": metrics["health"],
             "quality_scorecard": metrics.get("quality_scorecard"),
             "columns_info": _columns_info(working_public_df),
-        }
+        })
     )
 
 
@@ -1028,14 +1028,14 @@ async def submit_review_feedback(
         )
 
     return JSONResponse(
-        content={
+        content=_convert_types({
             "success": True,
             "session_id": session_id,
             "status": session.status,
             "workflow_state": review_summary.get("workflow_state", session.status),
             "feedback": feedback_entry,
             "decision_count": len(decisions),
-        }
+        })
     )
 
 
@@ -1120,7 +1120,7 @@ async def revert_selected_changes(
     await db.flush()
 
     return JSONResponse(
-        content={
+        content=_convert_types({
             "success": True,
             "session_id": session_id,
             "status": session.status,
@@ -1135,7 +1135,7 @@ async def revert_selected_changes(
             "change_log": change_bundle["change_log"],
             "change_summary": change_bundle["summary"],
             "columns_info": _columns_info(cleaned_public_df),
-        }
+        })
     )
 
 
@@ -1190,14 +1190,14 @@ async def finalize_cleaned_dataset(
         )
 
     return JSONResponse(
-        content={
+        content=_convert_types({
             "success": True,
             "session_id": session_id,
             "status": session.status,
             "workflow_state": "approved",
             "approved_file_path": approved_path,
             "message": "Dataset approved and finalized.",
-        }
+        })
     )
 
 
@@ -1228,7 +1228,7 @@ async def get_session_quality(
         )
 
     return JSONResponse(
-        content={
+        content=_convert_types({
             "success": True,
             "session_id": session_id,
             "scorecard": {
@@ -1236,7 +1236,7 @@ async def get_session_quality(
                 "cleaned": cleaned_scorecard,
             },
             "anomaly_report": anomaly_report,
-        }
+        })
     )
 
 
@@ -1294,11 +1294,11 @@ async def get_feed_quality_summary(
     limited_rows = feed_rows[: max(1, min(limit, 100))]
 
     return JSONResponse(
-        content={
+        content=_convert_types({
             "success": True,
             "feeds": limited_rows,
             "count": len(limited_rows),
-        }
+        })
     )
 
 
@@ -1386,12 +1386,12 @@ async def suggest_features_endpoint(
 
     suggestions = await suggest_features(df)
 
-    return JSONResponse(content={
+    return JSONResponse(content=_convert_types({
         "success": True,
         "session_id": session_id,
         "suggestion_count": len(suggestions),
         "suggestions": suggestions,
-    })
+    }))
 
 
 @router.post(
@@ -1439,7 +1439,7 @@ async def apply_features_endpoint(
     session.cleaned_health_score = compute_health_score(public_updated)["total"]
     await db.flush()
 
-    return JSONResponse(content={
+    return JSONResponse(content=_convert_types({
         "success": True,
         "session_id": session_id,
         "features_applied": len([f for f in apply_log if f["status"] == "applied"]),
@@ -1450,4 +1450,4 @@ async def apply_features_endpoint(
         },
         "columns_info": _columns_info(public_updated),
         "cleaned_preview": df_to_json_safe(public_updated, max_rows=100),
-    })
+    }))

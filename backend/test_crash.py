@@ -44,7 +44,11 @@ async def run_test():
         
     proc.terminate()
     print("Server output:")
-    out, _ = proc.communicate(timeout=5)
+    try:
+        out, _ = proc.communicate(timeout=60)
+    except Exception:
+        proc.kill()
+        out, _ = proc.communicate()
     
     # only print the traceback
     lines = out.splitlines()
