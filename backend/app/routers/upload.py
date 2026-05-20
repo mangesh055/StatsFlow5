@@ -103,9 +103,12 @@ async def upload_dataset(
     # ── Generate Session ID ───────────────────────────────────────────────────
     session_id = generate_session_id()
 
-    # ── Save Raw File to Disk ─────────────────────────────────────────────────
+    # ── Save Raw File to Disk & Cloud ─────────────────────────────────────────
     raw_file_path = os.path.join(settings.upload_dir, f"{session_id}_raw.csv")
     df.to_csv(raw_file_path, index=False)
+    
+    from app.services.cloud_storage import sync_to_cloud
+    sync_to_cloud(raw_file_path)
 
     # ── Compute Raw Health Score ──────────────────────────────────────────────
     health = compute_health_score(df)
@@ -204,6 +207,17 @@ async def get_session(
         "filename": session.filename,
         "status": session.status,
     }
+
+    if session.file_path and not os.path.exists(session.file_path):
+        from app.services.cloud_storage import ensure_local_copy
+        basename = os.path.basename(session.file_path)
+        if basename.endswith("_raw.csv"):
+            object_name = f"raw/{basename}"
+        elif basename.endswith("_cleaned.csv"):
+            object_name = f"cleaned/{basename}"
+        else:
+            object_name = f"working/{basename}"
+        ensure_local_copy(object_name, session.file_path)
 
     if session.file_path and os.path.exists(session.file_path):
         try:

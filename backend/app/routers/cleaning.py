@@ -118,6 +118,17 @@ def _safe_json_value(value: Any) -> Any:
     return value
 
 
+def _sanitize_for_json(obj: Any) -> Any:
+    """Recursively convert dicts, lists, and values into JSON-safe primitives."""
+    if isinstance(obj, dict):
+        return {str(k): _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(v) for v in obj]
+    if isinstance(obj, tuple):
+        return [_sanitize_for_json(v) for v in obj]
+    return _safe_json_value(obj)
+
+
 def _is_missing_like(value: Any) -> bool:
     if value is None or pd.isna(value):
         return True
@@ -249,6 +260,9 @@ def _get_or_create_working_copy(session: DataSession) -> Tuple[str, pd.DataFrame
     # Create working copy path
     working_path = os.path.join(settings.upload_dir, f"{session.session_id}_chatbot_working.csv")
     cleaned_df.to_csv(working_path, index=False)
+    
+    from app.services.cloud_storage import sync_to_cloud
+    sync_to_cloud(working_path)
     
     # Save the path in the database
     session.chatbot_working_file_path = working_path
@@ -653,6 +667,7 @@ async def clean_dataset(
         missing_strategy=resolved_missing_strategy,
         outlier_strategy=resolved_outlier_strategy,
     )
+    cleaning_report = _sanitize_for_json(cleaning_report)
 
     cleaned_public_df = _public_df(cleaned_with_row_id)
     cleaned_health = compute_health_score(cleaned_public_df)
@@ -665,6 +680,7 @@ async def clean_dataset(
         cleaned_df=cleaned_public_df,
         baseline_partner_profile=baseline_partner_profile,
     )
+    anomaly_report = _sanitize_for_json(anomaly_report)
 
     pipeline_script = generate_pipeline_script(
         filename=session.filename,
@@ -675,12 +691,15 @@ async def clean_dataset(
 
     cleaned_path = os.path.join(settings.upload_dir, f"{session_id}_cleaned.csv")
     cleaned_with_row_id.to_csv(cleaned_path, index=False)
+    from app.services.cloud_storage import sync_to_cloud
+    sync_to_cloud(cleaned_path)
 
     change_bundle = _build_change_bundle(
         raw_with_row_id=raw_with_row_id,
         cleaned_with_row_id=cleaned_with_row_id,
         cleaning_report=cleaning_report,
     )
+    change_bundle = _sanitize_for_json(change_bundle)
     review_summary = _default_review_summary(
         cleaning_report=cleaning_report,
         change_bundle=change_bundle,
@@ -696,6 +715,7 @@ async def clean_dataset(
         "low_confidence_changes": change_bundle["summary"].get("low_confidence_changes", 0),
         "needs_human_review": change_bundle["summary"].get("low_confidence_changes", 0) > 0,
     }
+    review_summary = _sanitize_for_json(review_summary)
 
     session.cleaned_file_path = cleaned_path
     session.approved_file_path = None
@@ -905,6 +925,8 @@ async def edit_cleaned_cell(
 
     # Save to the working copy (not the original cleaned file)
     working_with_row_id.to_csv(working_path, index=False)
+    from app.services.cloud_storage import sync_to_cloud
+    sync_to_cloud(working_path)
     await db.flush()
     await db.commit()
 
@@ -989,6 +1011,7 @@ async def submit_review_feedback(
         review_summary.get("workflow_state", session.status), request.approval_status
     )
     review_summary["updated_at"] = _utc_now_iso()
+    review_summary = _sanitize_for_json(review_summary)
 
     session.review_summary = review_summary
     session.status = _set_status_for_feedback(session.status, request.approval_status)
@@ -1068,6 +1091,8 @@ async def revert_selected_changes(
         reverted.append(change_id)
 
     cleaned_with_row_id.to_csv(session.cleaned_file_path, index=False)
+    from app.services.cloud_storage import sync_to_cloud
+    sync_to_cloud(session.cleaned_file_path)
 
     cleaned_public_df = _public_df(cleaned_with_row_id)
     cleaned_health = compute_health_score(cleaned_public_df)
@@ -1090,6 +1115,7 @@ async def revert_selected_changes(
     review_summary["cleaned_health_score"] = cleaned_health["total"]
     review_summary["workflow_state"] = "revised"
     review_summary["updated_at"] = _utc_now_iso()
+    review_summary = _sanitize_for_json(review_summary)
 
     session.review_summary = review_summary
     session.cleaned_rows = int(cleaned_public_df.shape[0])
@@ -1137,6 +1163,8 @@ async def finalize_cleaned_dataset(
 
     approved_path = os.path.join(settings.upload_dir, f"{session_id}_approved.csv")
     cleaned_public_df.to_csv(approved_path, index=False)
+    from app.services.cloud_storage import sync_to_cloud
+    sync_to_cloud(approved_path)
 
     review_summary = session.review_summary or {}
     history = review_summary.get("version_history", [])
@@ -1206,6 +1234,7 @@ async def get_session_quality(
             cleaned_df=cleaned_df,
             baseline_partner_profile=baseline_partner_profile,
         )
+        anomaly_report = _sanitize_for_json(anomaly_report)
 
     return JSONResponse(
         content={

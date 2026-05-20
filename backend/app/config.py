@@ -5,7 +5,7 @@ Centralized settings management using Pydantic BaseSettings.
 All environment variables are loaded from the .env file.
 """
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 from typing import List
 import os
@@ -106,10 +106,16 @@ class Settings(BaseSettings):
         )
         os.makedirs(upload_path, exist_ok=True)
 
-    class Config:
-        env_file = ENV_FILE_PATH
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    # Supabase Storage Configuration
+    supabase_url: str = Field(default="", description="Supabase project URL")
+    supabase_key: str = Field(default="", description="Supabase service role / anon key")
+    supabase_bucket: str = Field(default="statsflow-datasets", description="Supabase storage bucket name")
+
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE_PATH,
+        env_file_encoding="utf-8",
+        case_sensitive=False
+    )
 
 
 # Singleton settings instance — import this across the application

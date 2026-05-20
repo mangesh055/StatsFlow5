@@ -30,14 +30,19 @@ if IS_SQLITE:
     )
     logger.info("Database engine → SQLite (statsflow.db)")
 else:
+    import uuid
+    from sqlalchemy.pool import NullPool
+
     engine = create_async_engine(
         url=settings.database_url,
         echo=settings.debug,
-        pool_size=10,
-        max_overflow=20,
-        pool_pre_ping=True,
+        poolclass=NullPool,
+        connect_args={
+            "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4().hex}__",
+            "statement_cache_size": 0
+        }
     )
-    logger.info("Database engine → PostgreSQL")
+    logger.info("Database engine → PostgreSQL (PgBouncer compatible)")
 
 # ── Session Factory ───────────────────────────────────────────────
 AsyncSessionLocal = async_sessionmaker(

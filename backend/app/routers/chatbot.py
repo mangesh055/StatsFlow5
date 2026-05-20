@@ -180,6 +180,9 @@ async def chat(
             _cs.logger.warning(f"Failed to create version backup: {exc}")
 
         updated_df.to_csv(session.cleaned_file_path, index=False)
+        
+        from app.services.cloud_storage import sync_to_cloud
+        sync_to_cloud(session.cleaned_file_path)
         session.cleaned_rows = int(updated_df.shape[0])
         session.cleaned_cols = int(updated_df.shape[1])
         await db.flush()

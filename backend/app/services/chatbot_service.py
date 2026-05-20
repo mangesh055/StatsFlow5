@@ -2326,10 +2326,14 @@ def _build_dataset_context(df: pd.DataFrame) -> Dict[str, Any]:
     total_rows = max(int(df.shape[0]), 1)
     missing_total = int(df.isnull().sum().sum())
 
+    # Dynamically scale verbosity based on column count to avoid exceeding LLM context window/TPM limits.
+    num_cols = int(df.shape[1])
+    is_wide = num_cols > 25
+
     # --- Top-level summary (always short) ---
     summary = {
         "rows": total_rows,
-        "columns": int(df.shape[1]),
+        "columns": num_cols,
         "missing_cells": missing_total,
         "numeric_columns": numeric_cols,
         "categorical_columns": categorical_cols,
@@ -2343,23 +2347,26 @@ def _build_dataset_context(df: pd.DataFrame) -> Dict[str, Any]:
         profile: Dict[str, Any] = {
             "dtype": str(series.dtype),
             "missing": missing_count,
-            "missing_pct": round(missing_count / total_rows * 100, 1),
         }
+        if not is_wide:
+            profile["missing_pct"] = round(missing_count / total_rows * 100, 1)
 
         if col in numeric_cols:
             clean = pd.to_numeric(series, errors="coerce").dropna()
             if not clean.empty:
                 profile["mean"] = round(float(clean.mean()), 4)
-                profile["median"] = round(float(clean.median()), 4)
                 profile["min"] = round(float(clean.min()), 4)
                 profile["max"] = round(float(clean.max()), 4)
-                profile["std"] = round(float(clean.std()), 4) if len(clean) > 1 else 0.0
+                if not is_wide:
+                    profile["median"] = round(float(clean.median()), 4)
+                    profile["std"] = round(float(clean.std()), 4) if len(clean) > 1 else 0.0
         else:
-            # For categoricals, include top-5 values and cardinality
-            vc = series.dropna().astype(str).str.strip().value_counts().head(5)
+            # For categoricals, include fewer top values if wide
+            top_k = 2 if is_wide else 5
+            vc = series.dropna().astype(str).str.strip().value_counts().head(top_k)
             profile["unique"] = int(series.nunique(dropna=True))
             profile["top_values"] = [
-                {"value": str(k), "count": int(v), "pct": round(v / total_rows * 100, 1)}
+                {"value": str(k), "count": int(v)}
                 for k, v in vc.items()
             ]
 
@@ -2367,7 +2374,7 @@ def _build_dataset_context(df: pd.DataFrame) -> Dict[str, Any]:
 
     # --- Top correlations (compact, only for numeric pairs) ---
     correlations: List[str] = []
-    if len(numeric_cols) >= 2:
+    if len(numeric_cols) >= 2 and not is_wide:
         try:
             corr_matrix = df[numeric_cols].corr().abs()
             np.fill_diagonal(corr_matrix.values, np.nan)
@@ -2384,9 +2391,10 @@ def _build_dataset_context(df: pd.DataFrame) -> Dict[str, Any]:
         except Exception:
             pass
 
-    # --- Sample rows (5 rows give LLM ground truth for value formatting) ---
+    # --- Sample rows (reduce sample count for wide datasets) ---
     try:
-        sample_rows = df_to_json_safe(df, max_rows=5)
+        sample_count = 1 if num_cols > 50 else (2 if is_wide else 5)
+        sample_rows = df_to_json_safe(df, max_rows=sample_count)
     except Exception:
         sample_rows = []
 
