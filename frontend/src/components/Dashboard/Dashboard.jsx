@@ -23,6 +23,7 @@ import {
 import HealthScoreCard from './HealthScoreCard';
 import DataTable from './DataTable';
 import DataViewerModal from '../Chatbot/DataViewerModal';
+import FeatureEngineering from './FeatureEngineering';
 import './Dashboard.css';
 
 const MISSING_STRATEGIES = [
@@ -230,6 +231,7 @@ function Dashboard() {
 
     hasTriggeredInitialAutoClean.current = true;
     handleClean(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, hasCleaned, isCleaning]);
 
   const handleDownloadPipeline = async () => {
@@ -483,6 +485,7 @@ function Dashboard() {
       <div className="dashboard-tabs">
         <button className={`tab-btn ${activeTab === 'raw_overview' ? 'active' : ''}`} onClick={() => setActiveTab('raw_overview')}>Raw Data Overview</button>
         <button className={`tab-btn ${activeTab === 'cleaning_process' ? 'active' : ''}`} onClick={() => setActiveTab('cleaning_process')}>Data Cleaning Process</button>
+        {hasCleaned && <button className={`tab-btn ${activeTab === 'feature_engineering' ? 'active' : ''}`} onClick={() => setActiveTab('feature_engineering')}>🧬 Feature Engineering</button>}
         {hasCleaned && <button className={`tab-btn ${activeTab === 'validation_monitoring' ? 'active' : ''}`} onClick={() => setActiveTab('validation_monitoring')}>Data Validation & Monitoring</button>}
         {hasCleaned && <button className={`tab-btn ${activeTab === 'final_output' ? 'active' : ''}`} onClick={() => setActiveTab('final_output')}>Final Output</button>}
       </div>
@@ -654,6 +657,22 @@ function Dashboard() {
                 )}
               </div>
             </>
+          )}
+
+          {/* ================= FEATURE ENGINEERING ================= */}
+          {activeTab === 'feature_engineering' && hasCleaned && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <FeatureEngineering
+                sessionId={sessionId}
+                onFeaturesApplied={(data) => {
+                  updateState({
+                    cleanedPreview: data.cleaned_preview || [],
+                    columnsInfo: data.columns_info || columnsInfo,
+                    cleanedShape: data.new_shape || cleanedShape,
+                  });
+                }}
+              />
+            </div>
           )}
 
           {/* ================= DATA VALIDATION & MONITORING ================= */}
